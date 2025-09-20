@@ -1,0 +1,33 @@
+name: Terraform WBD sandbox VPC
+
+on:
+  workflow_dispatch: {}   # adds a "Run workflow" button
+
+jobs:
+  tf:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ fromJSON(secrets.WBD_SANDBOX_SECRET).AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ fromJSON(secrets.WBD_SANDBOX_SECRET).AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+      REPO_PATH: projects/wbd/sandbox/us-east-1/stack-network
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Show caller identity (should be DESTINATION account)
+        run: aws sts get-caller-identity
+
+      - name: Install Terraform
+        run: |
+          curl -sSLo terraform.zip https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
+          sudo unzip -o terraform.zip -d /usr/local/bin
+          terraform -version
+
+      - name: Init / Validate / Plan / Apply
+        working-directory: ${{ env.REPO_PATH }}
+        run: |
+          terraform init -upgrade
+          terraform validate
+          terraform plan -out=tfplan.bin
+          terraform apply -auto-approve tfplan.bin
