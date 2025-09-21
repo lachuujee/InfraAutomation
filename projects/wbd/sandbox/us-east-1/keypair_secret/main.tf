@@ -1,10 +1,3 @@
-terraform {
-  required_providers {
-    aws = { source = "hashicorp/aws", version = ">= 5.0" }
-    tls = { source = "hashicorp/tls", version = ">= 4.0" }
-  }
-}
-
 # 1) Generate private/public key (no .pem written to disk)
 resource "tls_private_key" "this" {
   algorithm = var.algorithm
@@ -17,12 +10,13 @@ resource "aws_key_pair" "this" {
   public_key = tls_private_key.this.public_key_openssh
   tags       = local.common_tags
 
-  lifecycle { prevent_destroy = true }
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
-# 3) Secrets Manager secret
-#    - No kms_key_id provided => uses AWS-managed KMS key for Secrets Manager
-#    - recovery_window_in_days must be 7–30 (AWS limit) — set to 30 (max/safest)
+# 3) Secrets Manager secret (uses AWS-managed KMS by default)
+#    recovery_window_in_days must be 7–30; using 30 (max)
 resource "aws_secretsmanager_secret" "pk" {
   name                    = "${local.key_name}-private-key"
   recovery_window_in_days = 30
