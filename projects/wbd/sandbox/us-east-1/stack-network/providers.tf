@@ -6,8 +6,12 @@ terraform {
       version = "~> 5.60"
     }
   }
+  backend "s3" {
+    bucket = "wbd-tf-state-sandbox"                 # <-- your bucket
+    key    = "wbd/sandbox/network/terraform.tfstate"
+    region = "us-east-1"
+    encrypt = true
+  }
 }
 
-provider "aws" {
-  region = var.region
-}
+provider "aws" { region = var.region }
