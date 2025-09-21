@@ -1,4 +1,4 @@
-name: Terraform WBD sandbox keypair_secret
+name: Terraform WBD sandbox VPC
 
 on:
   workflow_dispatch: {}   # adds a "Run workflow" button
