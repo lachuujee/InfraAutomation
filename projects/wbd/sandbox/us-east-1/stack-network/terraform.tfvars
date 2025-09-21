@@ -3,7 +3,7 @@ environment = "sandbox"
 region      = "us-east-1"
 
 # Your actual IPAM pool ID:
-ipam_pool_id        = "ipam-pool-00c5cf0fe44301219"
+ipam_pool_id        = "ipam-pool-03f8473dfbe9f6504"
 
 # Leave default unless you want a different VPC size
 vpc_netmask_length  = 20
