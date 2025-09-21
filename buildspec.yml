@@ -3,7 +3,7 @@ version: 0.2
 env:
   variables:
     TF_INPUT: "false"
-    REPO_PATH: "projects/wbd/sandbox/us-east-1/stack-network"
+    REPO_PATH: "projects/wbd/sandbox/us-east-1/keypair_secret"
     REGION: "us-east-1"
 
 phases:
