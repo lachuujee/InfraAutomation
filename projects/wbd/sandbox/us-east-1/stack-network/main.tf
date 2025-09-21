@@ -1,35 +1,10 @@
 ############################################
-# Data & Locals
-############################################
-
-# Grab the first two AZs in the region (e.g., us-east-1a, us-east-1b)
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-locals {
-  # Two AZs
-  azs = slice(data.aws_availability_zones.available.names, 0, 2)
-
-  name_prefix = "${var.customer}_${var.environment}"
-
-  common_tags = merge(
-    {
-      Customer    = var.customer
-      Environment = var.environment
-    },
-    var.extra_tags
-  )
-}
-
-############################################
 # VPC via IPAM pool
 ############################################
 
 resource "aws_vpc" "this" {
-  # Allocate the VPC CIDR from your IPAM pool
   ipv4_ipam_pool_id   = var.ipam_pool_id
-  ipv4_netmask_length = var.vpc_netmask_length # e.g., 20
+  ipv4_netmask_length = var.vpc_netmask_length
 
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -41,44 +16,42 @@ resource "aws_vpc" "this" {
 }
 
 ############################################
-# Public & Private CIDR planning
-#
-# - Private: six /23 subnets (≈512 IPs each), split across two AZs:
-#     app-a, app-b, api-a, api-b, db-a, db-b
-# - Public: two /28 subnets (16 IPs each) carved from a dedicated /24
+# CIDR planning
+# - 6 private /23 subnets (≈512 IPs)
+# - 2 public /28 subnets (≈16 IPs)
 ############################################
 
 locals {
-  # Six /23s for private subnets (netnums 0..5)
+  # Six /23s from the start of the VPC space
   private_cidrs = [
     cidrsubnet(aws_vpc.this.cidr_block, 3, 0),
     cidrsubnet(aws_vpc.this.cidr_block, 3, 1),
     cidrsubnet(aws_vpc.this.cidr_block, 3, 2),
     cidrsubnet(aws_vpc.this.cidr_block, 3, 3),
     cidrsubnet(aws_vpc.this.cidr_block, 3, 4),
-    cidrsubnet(aws_vpc.this.cidr_block, 3, 5),
+    cidrsubnet(aws_vpc.this.cidr_block, 3, 5)
   ]
 
-  # Reserve the last /24 inside the VPC and carve two /28s for public
-  public_parent = cidrsubnet(aws_vpc.this.cidr_block, 4, 15) # /24
+  # Use the last /24 inside the VPC and carve two /28s for public
+  public_parent = cidrsubnet(aws_vpc.this.cidr_block, 4, 15) # a /24
   public_cidrs  = [
     cidrsubnet(local.public_parent, 4, 0), # /28
-    cidrsubnet(local.public_parent, 4, 1), # /28
+    cidrsubnet(local.public_parent, 4, 1)  # /28
   ]
 
-  # Map out the 6 private subnets with roles & AZs
+  # Map 6 private subnets to AZs and roles
   private_def = {
-    "app-a" = { cidr = local.private_cidrs[0], az = local.azs[0], role = "app" }
-    "app-b" = { cidr = local.private_cidrs[1], az = local.azs[1], role = "app" }
-    "api-a" = { cidr = local.private_cidrs[2], az = local.azs[0], role = "api" }
-    "api-b" = { cidr = local.private_cidrs[3], az = local.azs[1], role = "api" }
-    "db-a"  = { cidr = local.private_cidrs[4], az = local.azs[0], role = "db"  }
-    "db-b"  = { cidr = local.private_cidrs[5], az = local.azs[1], role = "db"  }
+    "app-a" = { cidr = local.private_cidrs[0], az = var.azs[0], role = "app" }
+    "app-b" = { cidr = local.private_cidrs[1], az = var.azs[1], role = "app" }
+    "api-a" = { cidr = local.private_cidrs[2], az = var.azs[0], role = "api" }
+    "api-b" = { cidr = local.private_cidrs[3], az = var.azs[1], role = "api" }
+    "db-a"  = { cidr = local.private_cidrs[4], az = var.azs[0], role = "db"  }
+    "db-b"  = { cidr = local.private_cidrs[5], az = var.azs[1], role = "db"  }
   }
 }
 
 ############################################
-# Internet Gateway (for public)
+# Internet Gateway
 ############################################
 
 resource "aws_internet_gateway" "igw" {
@@ -90,13 +63,13 @@ resource "aws_internet_gateway" "igw" {
 }
 
 ############################################
-# Public subnets x2 (/28 each)
+# Public subnets (2) — /28
 ############################################
 
 resource "aws_subnet" "public" {
   for_each = {
-    "a" = { cidr = local.public_cidrs[0], az = local.azs[0] }
-    "b" = { cidr = local.public_cidrs[1], az = local.azs[1] }
+    "a" = { cidr = local.public_cidrs[0], az = var.azs[0] }
+    "b" = { cidr = local.public_cidrs[1], az = var.azs[1] }
   }
 
   vpc_id                  = aws_vpc.this.id
@@ -111,12 +84,11 @@ resource "aws_subnet" "public" {
 }
 
 ############################################
-# EIP + NAT (1 NAT in AZ-a public subnet)
+# EIP + NAT (1 NAT in public-a)
 ############################################
 
 resource "aws_eip" "nat" {
   domain = "vpc"
-
   tags = merge(local.common_tags, {
     Name    = "${local.name_prefix}-nat-eip"
     Service = "NATGateway"
@@ -137,7 +109,7 @@ resource "aws_nat_gateway" "nat" {
 # Route tables
 ############################################
 
-# Public RTB with default route to IGW
+# Public RT -> IGW
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
   tags = merge(local.common_tags, {
@@ -151,21 +123,20 @@ resource "aws_route_table" "public" {
   }
 }
 
-# Associate public subnets with the public RTB
+# Associate public subnets to public RT
 resource "aws_route_table_association" "public_assoc" {
-  for_each      = aws_subnet.public
-  subnet_id     = each.value.id
+  for_each = aws_subnet.public
+  subnet_id      = each.value.id
   route_table_id = aws_route_table.public.id
 }
 
-# Three private RTBs by role, each with default route to the NAT
+# Three private RTs (app/api/db) -> NAT
 resource "aws_route_table" "private_app" {
   vpc_id = aws_vpc.this.id
   tags = merge(local.common_tags, {
     Name    = "${local.name_prefix}-rtb-private-app"
     Service = "RouteTablePrivate"
   })
-
   route {
     cidr_block     = "0.0.0.0/0"
     nat_gateway_id = aws_nat_gateway.nat.id
@@ -178,7 +149,6 @@ resource "aws_route_table" "private_api" {
     Name    = "${local.name_prefix}-rtb-private-api"
     Service = "RouteTablePrivate"
   })
-
   route {
     cidr_block     = "0.0.0.0/0"
     nat_gateway_id = aws_nat_gateway.nat.id
@@ -191,7 +161,6 @@ resource "aws_route_table" "private_db" {
     Name    = "${local.name_prefix}-rtb-private-db"
     Service = "RouteTablePrivate"
   })
-
   route {
     cidr_block     = "0.0.0.0/0"
     nat_gateway_id = aws_nat_gateway.nat.id
@@ -199,7 +168,7 @@ resource "aws_route_table" "private_db" {
 }
 
 ############################################
-# Private subnets x6 (/23 each) + associations
+# Private subnets (6) — /23 + associations
 ############################################
 
 resource "aws_subnet" "private" {
@@ -216,7 +185,7 @@ resource "aws_subnet" "private" {
   })
 }
 
-# Map role -> private route table id
+# Map role -> RT id
 locals {
   rtb_by_role = {
     app = aws_route_table.private_app.id
@@ -225,30 +194,24 @@ locals {
   }
 }
 
-# Associate each private subnet to its role-specific RTB
 resource "aws_route_table_association" "private_assoc" {
-  for_each = local.private_def
-
+  for_each      = local.private_def
   subnet_id      = aws_subnet.private[each.key].id
   route_table_id = local.rtb_by_role[each.value.role]
 }
 
 ############################################
-# Network ACL (one NACL, attach to all subnets)
-# Inbound: allow 443 only
-# Outbound: allow all
+# NACL: inbound 443 only, outbound all
 ############################################
 
 resource "aws_network_acl" "vpc_acl" {
   vpc_id = aws_vpc.this.id
-
   tags = merge(local.common_tags, {
     Name    = "${local.name_prefix}-nacl"
     Service = "NACL"
   })
 }
 
-# Inbound allow HTTPS
 resource "aws_network_acl_rule" "ingress_https" {
   network_acl_id = aws_network_acl.vpc_acl.id
   rule_number    = 100
@@ -260,7 +223,6 @@ resource "aws_network_acl_rule" "ingress_https" {
   to_port        = 443
 }
 
-# Outbound allow all
 resource "aws_network_acl_rule" "egress_all" {
   network_acl_id = aws_network_acl.vpc_acl.id
   rule_number    = 100
@@ -272,15 +234,15 @@ resource "aws_network_acl_rule" "egress_all" {
   to_port        = 0
 }
 
-# Attach the NACL to every subnet
+# Attach NACL to all subnets (public + private)
 resource "aws_network_acl_association" "assoc_public" {
-  for_each = aws_subnet.public
+  for_each       = aws_subnet.public
   network_acl_id = aws_network_acl.vpc_acl.id
   subnet_id      = each.value.id
 }
 
 resource "aws_network_acl_association" "assoc_private" {
-  for_each = aws_subnet.private
+  for_each       = aws_subnet.private
   network_acl_id = aws_network_acl.vpc_acl.id
   subnet_id      = each.value.id
 }
@@ -304,10 +266,7 @@ data "aws_iam_policy_document" "flowlogs_trust" {
 resource "aws_iam_role" "flowlogs_role" {
   name               = "${local.name_prefix}-vpc-flowlogs-role"
   assume_role_policy = data.aws_iam_policy_document.flowlogs_trust.json
-
-  tags = merge(local.common_tags, {
-    Service = "FlowLogs"
-  })
+  tags = merge(local.common_tags, { Service = "FlowLogs" })
 }
 
 data "aws_iam_policy_document" "flowlogs_policy" {
@@ -332,11 +291,8 @@ resource "aws_iam_role_policy" "flowlogs_role_policy" {
 
 resource "aws_cloudwatch_log_group" "flowlogs" {
   name              = "/vpc/flowlogs/${local.name_prefix}"
-  retention_in_days = 14
-
-  tags = merge(local.common_tags, {
-    Service = "FlowLogs"
-  })
+  retention_in_days = var.flow_logs_retention_days
+  tags = merge(local.common_tags, { Service = "FlowLogs" })
 }
 
 resource "aws_flow_log" "vpc" {
@@ -345,8 +301,5 @@ resource "aws_flow_log" "vpc" {
   log_group_name       = aws_cloudwatch_log_group.flowlogs.name
   iam_role_arn         = aws_iam_role.flowlogs_role.arn
   traffic_type         = "ALL"
-
-  tags = merge(local.common_tags, {
-    Service = "FlowLogs"
-  })
+  tags = merge(local.common_tags, { Service = "FlowLogs" })
 }
