@@ -1,4 +1,4 @@
-name: Terraform WBD sandbox VPC
+name: Terraform WBD sandbox keypair_secret
 
 on:
   workflow_dispatch: {}   # adds a "Run workflow" button
@@ -10,7 +10,7 @@ jobs:
       AWS_ACCESS_KEY_ID:     ${{ fromJSON(secrets.WBD_SANDBOX_SECRET).AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ fromJSON(secrets.WBD_SANDBOX_SECRET).AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: us-east-1
-      REPO_PATH: projects/wbd/sandbox/us-east-1/stack-network
+      REPO_PATH: projects/wbd/sandbox/us-east-1/keypair_secret
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
