@@ -10,9 +10,10 @@ terraform {
 
   backend "s3" {
     bucket  = "wbd-tf-state-sandbox"
-    key     = "wbd/sandbox/ec2_app/terraform.tfstate"
+    key     = "wbd/sandbox/ec2/terraform.tfstate"
     region  = "us-east-1"
     encrypt = true
+    # (In prod, add DynamoDB table for state locking)
   }
 }
 
