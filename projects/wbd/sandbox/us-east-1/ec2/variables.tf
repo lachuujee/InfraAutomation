@@ -5,7 +5,7 @@ variable "region"      { type = string }   # e.g., "us-east-1"
 # Defaults you can override via tfvars/CI
 variable "instance_type" {
   type    = string
-  default = "t3a.medium"
+  default = "t3.micro"
 }
 
 variable "root_volume_size_gb" {
