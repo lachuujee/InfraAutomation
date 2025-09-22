@@ -2,11 +2,9 @@
 # EC2 stack - logic only
 # =========================
 
-# -------- Shared naming/tags (aligned with your VPC style) --------
+# -------- Naming/tags (no name_prefix var; simple & explicit) --------
 locals {
-  name_prefix = "${var.customer}_${var.environment}"   # e.g., WBD_sandbox
-  ec2_name    = "${local.name_prefix}-ec2-app"
-
+  ec2_name    = "${var.customer}_${var.environment}-ec2-app"
   common_tags = merge(
     { Customer = var.customer, Environment = var.environment },
     var.tags_extra
@@ -36,11 +34,10 @@ data "terraform_remote_state" "iam" {
 
 # -------- AMI: Latest Amazon Linux via AWS public SSM Parameter --------
 data "aws_ssm_parameter" "ami" {
-  # Works in empty accounts; AWS publishes these per region
   name = var.ami_ssm_parameter
 }
 
-# If VPC CIDR wasn't exported, we can derive it by describing the VPC ID
+# If VPC CIDR wasn't exported, derive it by describing the VPC ID
 locals {
   vpc_id = try(data.terraform_remote_state.vpc.outputs.vpc_id, null)
 }
@@ -63,23 +60,23 @@ locals {
     )
   )
 
-  # Map form: private_subnet_ids_by_role = { app-a = subnet-..., app-b = subnet-..., ... }
+  # Map form: private_subnet_ids_by_role = { app-a = subnet-..., app-b = subnet-..., APP-HEFN-FEE = subnet-..., ... }
   subnets_by_role = try(local.vpc_outputs.private_subnet_ids_by_role, {})
 
   # Keys that contain "app" (case-insensitive)
   app_keys = [for k in keys(local.subnets_by_role) : k if length(regexall("(?i)app", k)) > 0]
 
-  # If any app* keys exist, pick the first (sorted). Else null.
-  chosen_key_from_map = length(local.app_keys) > 0 ? sort(local.app_keys)[0] : null
+  # If any app* keys exist, pick the first (sorted). Else check list outputs.
+  chosen_key_from_map    = length(local.app_keys) > 0 ? sort(local.app_keys)[0] : null
   chosen_subnet_from_map = local.chosen_key_from_map != null ? local.subnets_by_role[local.chosen_key_from_map] : null
 
-  # Fallback list-style outputs
-  app_list1 = try(local.vpc_outputs.app_private_subnet_ids, [])
-  app_list2 = try(local.vpc_outputs.private_app_subnet_ids, [])
-  app_list_any = length(local.app_list1) > 0 ? local.app_list1 : local.app_list2
+  # Fallback list-style outputs (if your VPC exports them)
+  app_list1            = try(local.vpc_outputs.app_private_subnet_ids, [])
+  app_list2            = try(local.vpc_outputs.private_app_subnet_ids, [])
+  app_list_any         = length(local.app_list1) > 0 ? local.app_list1 : local.app_list2
   chosen_subnet_fallback = length(local.app_list_any) > 0 ? local.app_list_any[0] : null
 
-  # Final chosen subnet
+  # Final chosen subnet: any “app” subnet (APP-HEFN-FEE etc.) or the first in list outputs
   chosen_subnet_id = local.chosen_subnet_from_map != null ? local.chosen_subnet_from_map : local.chosen_subnet_fallback
 
   iam_instance_profile = try(data.terraform_remote_state.iam.outputs.instance_profile_name, null)
@@ -95,7 +92,7 @@ resource "aws_security_group" "app_sg" {
 
 resource "aws_vpc_security_group_ingress_rule" "https_in" {
   security_group_id = aws_security_group.app_sg.id
-  cidr_ipv4         = local.vpc_cidr != null ? local.vpc_cidr : "0.0.0.0/0" # prefer VPC-only; fall back if CIDR not exported
+  cidr_ipv4         = local.vpc_cidr != null ? local.vpc_cidr : "0.0.0.0/0" # prefer VPC-only; fallback if CIDR not exported
   from_port         = 443
   to_port           = 443
   ip_protocol       = "tcp"
@@ -142,7 +139,7 @@ locals {
 # -------- EC2 instance --------
 resource "aws_instance" "app" {
   ami                         = data.aws_ssm_parameter.ami.value
-  instance_type               = var.instance_type                 # default t3a.medium (from variables.tf)
+  instance_type               = var.instance_type
   subnet_id                   = local.chosen_subnet_id
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
   associate_public_ip_address = false
@@ -153,7 +150,7 @@ resource "aws_instance" "app" {
   # Root volume
   root_block_device {
     volume_type = "gp3"
-    volume_size = var.root_volume_size_gb                       # default 8 (overrideable)
+    volume_size = var.root_volume_size_gb
     encrypted   = true
   }
 
@@ -166,7 +163,6 @@ resource "aws_instance" "app" {
 
   tags = merge(local.common_tags, { Name = local.ec2_name })
 
-  # Clear failure messages if wiring is missing
   lifecycle {
     precondition {
       condition     = local.chosen_subnet_id != null
