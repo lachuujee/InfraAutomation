@@ -2,29 +2,21 @@ customer    = "WBD"
 environment = "sandbox"
 region      = "us-east-1"
 
-# Optional overrides (uncomment only if you want to change defaults)
-# role_name_override    = "WBD_sandbox-ec2-role"
-# profile_name_override = "WBD_sandbox-ec2-profile"
+# Optional extra tags for all IAM resources in this stack
+# tags_extra = { Owner = "you", CostCenter = "poc" }
 
-# Managed policies to attach (defaults already include SSM + CloudWatch Agent)
+# Optional: override managed policies or add inline_policies if needed
 # managed_policy_arns = [
 #   "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
 #   "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 # ]
-
-# Inline policies as JSON strings, e.g.:
 # inline_policies = {
-#   "extra-permissions" = jsonencode({
-#     Version   = "2012-10-17",
+#   "s3-minimal-object-rw" = jsonencode({
+#     Version = "2012-10-17",
 #     Statement = [{
 #       Effect   = "Allow",
-#       Action   = ["logs:CreateLogGroup"],
-#       Resource = "*"
+#       Action   = ["s3:GetObject", "s3:PutObject"],
+#       Resource = "arn:aws:s3:::*/*"
 #     }]
 #   })
 # }
-
-tags_extra = {
-  Project     = "automation-demo"
-  Owner       = "user123"
-}
