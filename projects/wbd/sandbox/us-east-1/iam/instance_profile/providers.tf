@@ -13,7 +13,6 @@ terraform {
     key     = "wbd/sandbox/iam/instance_profile/terraform.tfstate"
     region  = "us-east-1"
     encrypt = true
-    # No DynamoDB table (per your requirement)
   }
 }
 
